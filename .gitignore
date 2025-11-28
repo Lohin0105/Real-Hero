@@ -1,0 +1,20 @@
+# Ignore environment files (do not commit secrets)
+/backend/.env
+/frontend/.env
+
+# Node modules
+**/node_modules
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build outputs
+frontend/build
+
+# OS files
+.DS_Store
+Thumbs.db
