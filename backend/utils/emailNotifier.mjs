@@ -47,6 +47,9 @@ function normalizeRecipients(to) {
 }
 
 export async function sendMail({ to, subject, html, text }) {
+  console.log(`[Email Debug] Attempting to send email to: ${to}`);
+  console.log(`[Email Debug] Subject: ${subject}`);
+
   try {
     const recipients = normalizeRecipients(to);
     if (recipients.length === 0) {
