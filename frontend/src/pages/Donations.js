@@ -148,7 +148,7 @@ export default function Donations() {
             const data = await res.json();
             console.log('Complete donation response:', data);
             if (res.ok) {
-                alert("Great job! Your rewards will be added in a couple of days after verification.");
+                alert("Great job! We have sent a verification email to the requester. Your rewards will be credited once they confirm.");
                 console.log('Reloading donations...');
                 await loadDonations(user);
                 console.log('Donations reloaded');
