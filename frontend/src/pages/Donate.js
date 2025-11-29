@@ -441,15 +441,21 @@ export default function Donate() {
 
           // STRICT FILTER
           if (distance !== null && distance <= 50) {
-            const reqBlood = r.bloodGroup || r.blood || null;
-            if (
-              userBlood &&
-              reqBlood &&
-              reqBlood.toLowerCase() === userBlood.toLowerCase()
-            ) {
-              match.push({ ...r, distanceKm: Number(distance.toFixed(1)) });
-            } else {
-              others.push({ ...r, distanceKm: Number(distance.toFixed(1)) });
+            // Prevent self-donation (UI filter)
+            const isSelf = (r.requesterId && matchingUser?._id && r.requesterId === matchingUser._id) ||
+              (r.uid && matchingUser?.uid && r.uid === matchingUser.uid);
+
+            if (!isSelf) {
+              const reqBlood = r.bloodGroup || r.blood || null;
+              if (
+                userBlood &&
+                reqBlood &&
+                reqBlood.toLowerCase() === userBlood.toLowerCase()
+              ) {
+                match.push({ ...r, distanceKm: Number(distance.toFixed(1)) });
+              } else {
+                others.push({ ...r, distanceKm: Number(distance.toFixed(1)) });
+              }
             }
           } else if (distance !== null && distance > 50) {
             // Only >50 km goes to recent
@@ -724,37 +730,35 @@ export default function Donate() {
     setPendingOfferRequest(request);
     setPendingAction(action);
 
-    (async () => {
-      const res = await createOfferOnServer(request, {});
-      if (!res?.ok) {
-        console.warn('Offer creation failed in openConfirmAndProceed', res?.error);
-        // createOfferOnServer already shows an alert for missing phone; abort further action
-        setPendingOfferRequest(null);
-        setPendingAction(null);
-        return;
-      }
+    // Optimistic UI: Trigger action immediately, handle server in background
+    createOfferOnServer(request, {}).then(res => {
+      if (!res?.ok) console.warn('Background offer creation failed', res?.error);
+    }).catch(e => console.warn('Background offer creation network error', e));
 
-      // proceed with the requested external action (call / navigate)
-      try {
-        if (action === 'call') {
-          // Use tel: protocol with properly formatted phone number
-          const phoneNumber = request.phone.toString().replace(/\D/g, ''); // Remove non-digits
-          if (isMobileDevice()) {
-            // On mobile, use window.location.href for better compatibility
-            window.location.href = `tel:${phoneNumber}`;
-          } else {
-            window.open(`tel:${phoneNumber}`);
-          }
-        } else if (action === 'navigate') {
-          await openMapForRequest(request);
+    // proceed with the requested external action (call / navigate) immediately
+    try {
+      if (action === 'call') {
+        // Use tel: protocol with properly formatted phone number
+        const phoneNumber = request.phone.toString().replace(/\D/g, ''); // Remove non-digits
+        if (isMobileDevice()) {
+          // On mobile, use window.location.href for better compatibility
+          window.location.href = `tel:${phoneNumber}`;
+        } else {
+          window.open(`tel:${phoneNumber}`);
         }
-      } catch (e) {
-        console.warn('Failed to open external action after creating offer', e);
+      } else if (action === 'navigate') {
+        // Note: openMapForRequest might be async (geocoding), but we start it now
+        openMapForRequest(request);
       }
+    } catch (e) {
+      console.warn('Failed to open external action', e);
+    }
 
+    // Clear pending state shortly after
+    setTimeout(() => {
       setPendingOfferRequest(null);
       setPendingAction(null);
-    })();
+    }, 1000);
   }
 
   // Robust availability update:
