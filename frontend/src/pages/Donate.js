@@ -754,6 +754,20 @@ export default function Donate() {
       console.warn('Failed to open external action', e);
     }
 
+    // Show confirmation toast
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: 'Thanks for helping!',
+      text: 'We are notifying the requester.',
+      showConfirmButton: false,
+      timer: 3000,
+      timerProgressBar: true,
+      background: '#1a1a1a',
+      color: '#fff'
+    });
+
     // Clear pending state shortly after
     setTimeout(() => {
       setPendingOfferRequest(null);
