@@ -5,6 +5,8 @@ import {
     getRecentRequests,
     geocodeMissingRequests,
     claimRequest,
+    registerInterest,
+    confirmInterest,
     verifyArrival,
     completeDonation,
     cancelDonation,
@@ -22,6 +24,8 @@ router.post("/geocode-missing", geocodeMissingRequests);
 
 // Claim System Routes
 router.post("/claim/:id", claimRequest);
+router.post("/interest/:id", registerInterest);
+router.get("/confirm-interest/:id", confirmInterest);
 router.post("/verify-arrival/:id", verifyArrival);
 router.post("/complete/:id", completeDonation);
 router.post("/cancel/:id", cancelDonation);
