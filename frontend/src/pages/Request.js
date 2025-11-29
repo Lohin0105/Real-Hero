@@ -1,5 +1,6 @@
 // frontend/src/pages/Request.js
 import React, { useEffect, useState } from "react";
+import Swal from 'sweetalert2';
 import { auth as firebaseAuth } from "../firebase/firebaseConfig";
 import {
   Box,
@@ -244,7 +245,7 @@ export default function Request() {
         try {
           if (navigator.geolocation) {
             const pos = await new Promise((resolve, reject) =>
-              navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 8000 })
+              navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 5000 })
             );
             const lat = pos.coords.latitude;
             const lng = pos.coords.longitude;
@@ -363,13 +364,21 @@ export default function Request() {
       }));
       setCoords(null);
       // refresh recent
+      // refresh recent
       await loadRecentRequests();
-      alert("Request submitted successfully.");
+
+      Swal.fire({
+        title: 'Request Sent!',
+        text: 'We have notified nearby donors. You will be notified when someone accepts.',
+        icon: 'success',
+        confirmButtonColor: '#d33',
+      });
     } catch (err) {
       console.error("handleSubmit error:", err);
       setSubmitError("Failed to submit request: " + (err?.message || "network error"));
+    } finally {
+      setSubmitting(false);
     }
-    setSubmitting(false);
   }
 
   return (
