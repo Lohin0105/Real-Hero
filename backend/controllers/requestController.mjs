@@ -108,8 +108,11 @@ export const createRequest = async (req, res) => {
               $maxDistance: radiusInMeters,
             },
           },
-          // Exclude the requester if they are a registered user
-          uid: { $ne: uid },
+          // Exclude the requester (by uid and _id)
+          $and: [
+            { uid: { $ne: uid } },
+            { _id: { $ne: requesterId } }
+          ]
         }).select("_id name locationGeo");
 
         console.log(`createRequest: Found ${nearbyUsers.length} nearby users:`, nearbyUsers.map(u => u._id));
@@ -342,7 +345,13 @@ export const claimRequest = async (req, res) => {
     // Resolve user
     let user = null;
     if (uid) {
-      user = await User.findOne({ $or: [{ uid }, { _id: uid }] });
+      // Check if uid is a valid ObjectId to avoid CastError
+      const isObjectId = /^[0-9a-fA-F]{24}$/.test(uid);
+      if (isObjectId) {
+        user = await User.findOne({ $or: [{ uid }, { _id: uid }] });
+      } else {
+        user = await User.findOne({ uid });
+      }
     }
 
     if (!user) return res.status(401).json({ error: "User not identified" });
@@ -358,6 +367,11 @@ export const claimRequest = async (req, res) => {
     const existingResponse = await DonorResponse.findOne({ requestId: id, donorId: user._id });
     if (existingResponse) {
       return res.status(400).json({ error: "You have already claimed/responded to this request" });
+    }
+
+    // Prevent self-donation
+    if (request.requesterId && user._id && request.requesterId.toString() === user._id.toString()) {
+      return res.status(400).json({ error: "You cannot donate to your own request." });
     }
 
     let role = 'backup';
@@ -409,7 +423,10 @@ export const claimRequest = async (req, res) => {
     }
 
     // Notify Requester
-    const requester = await User.findById(request.requesterId);
+    let requester = null;
+    if (request.requesterId) {
+      requester = await User.findById(request.requesterId);
+    }
     if (requester?.email) {
       sendMail({
         to: requester.email,
@@ -422,7 +439,7 @@ export const claimRequest = async (req, res) => {
 
   } catch (err) {
     console.error("claimRequest:", err);
-    return res.status(500).json({ error: "Failed to claim request" });
+    return res.status(500).json({ error: "Failed to claim request: " + err.message });
   }
 };
 
