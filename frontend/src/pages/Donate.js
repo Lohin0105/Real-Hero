@@ -731,9 +731,21 @@ export default function Donate() {
     setPendingAction(action);
 
     // Optimistic UI: Trigger action immediately, handle server in background
-    createOfferOnServer(request, {}).then(res => {
-      if (!res?.ok) console.warn('Background offer creation failed', res?.error);
-    }).catch(e => console.warn('Background offer creation network error', e));
+    // CHANGED: Call registerInterest instead of createOfferOnServer
+    firebaseAuth.currentUser?.getIdToken().then(token => {
+      fetch(`${process.env.REACT_APP_API_BASE || 'http://localhost:5000'}/api/requests/interest/${request._id}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ uid: user.uid })
+      }).then(res => res.json())
+        .then(data => {
+          if (!data.ok) console.warn('Background interest registration failed', data.error);
+        })
+        .catch(e => console.warn('Background interest registration network error', e));
+    });
 
     // proceed with the requested external action (call / navigate) immediately
     try {
@@ -758,11 +770,11 @@ export default function Donate() {
     Swal.fire({
       toast: true,
       position: 'top-end',
-      icon: 'success',
-      title: 'Thanks for helping!',
-      text: 'We are notifying the requester.',
+      icon: 'info',
+      title: 'Action Recorded',
+      text: 'Please check your email to confirm your donation pledge.',
       showConfirmButton: false,
-      timer: 3000,
+      timer: 5000,
       timerProgressBar: true,
       background: '#1a1a1a',
       color: '#fff'
