@@ -127,8 +127,6 @@ export default function Request() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Sidebar is now imported
-
   async function loadRecentRequests() {
     setLoadingRecent(true);
     try {
@@ -653,3 +651,4 @@ export default function Request() {
     </Box>
   );
 }
+
