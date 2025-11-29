@@ -440,6 +440,189 @@ export const claimRequest = async (req, res) => {
 };
 
 /**
+ * POST /api/requests/interest/:id
+ * Body: { uid }
+ * Triggered when user clicks "Call" or "Navigate".
+ * Sends an email to the donor asking for confirmation.
+ */
+export const registerInterest = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { uid } = req.body;
+
+    // Resolve user
+    let user = null;
+    if (uid) {
+      const isObjectId = /^[0-9a-fA-F]{24}$/.test(uid);
+      if (isObjectId) {
+        user = await User.findOne({ $or: [{ uid }, { _id: uid }] });
+      } else {
+        user = await User.findOne({ uid });
+      }
+    }
+
+    if (!user) return res.status(401).json({ error: "User not identified" });
+
+    const request = await Request.findById(id);
+    if (!request) return res.status(404).json({ error: "Request not found" });
+
+    if (request.status === 'fulfilled' || request.status === 'cancelled') {
+      return res.status(400).json({ error: "Request is already closed" });
+    }
+
+    // Check if already responded
+    const existingResponse = await DonorResponse.findOne({ requestId: id, donorId: user._id });
+    if (existingResponse) {
+      return res.status(400).json({ error: "You have already responded to this request." });
+    }
+
+    // Prevent self-donation
+    if (request.requesterId && user._id && request.requesterId.toString() === user._id.toString()) {
+      return res.status(400).json({ error: "You cannot donate to your own request." });
+    }
+
+    if (!user.email) {
+      return res.status(400).json({ error: "Email required to confirm donation." });
+    }
+
+    // Send Confirmation Email
+    const confirmYesUrl = `${process.env.SERVER_BASE || 'http://localhost:5000'}/api/requests/confirm-interest/${id}?uid=${user.uid}&response=yes`;
+    const confirmNoUrl = `${process.env.SERVER_BASE || 'http://localhost:5000'}/api/requests/confirm-interest/${id}?uid=${user.uid}&response=no`;
+
+    const emailHtml = `
+      <p>Hi ${user.name},</p>
+      <p>You indicated interest in donating blood for the request at <b>${request.hospital}</b>.</p>
+      <p><b>Do you confirm that you want to donate?</b></p>
+      <p>
+        <a href="${confirmYesUrl}" style="display:inline-block;padding:12px 24px;background:#4caf50;color:#fff;text-decoration:none;border-radius:4px;margin-right:10px;">✓ YES, I will donate</a>
+        <a href="${confirmNoUrl}" style="display:inline-block;padding:12px 24px;background:#f44336;color:#fff;text-decoration:none;border-radius:4px;">✗ NO, I cannot</a>
+      </p>
+      <p>If you confirm YES, we will assign you as a donor and notify the requester.</p>
+      <p>Thanks — Real-Hero</p>
+    `;
+
+    await sendMail({
+      to: user.email,
+      subject: "Confirm Your Donation Pledge",
+      html: emailHtml
+    });
+
+    return res.json({ ok: true, message: "Confirmation email sent. Please check your inbox." });
+
+  } catch (err) {
+    console.error("registerInterest:", err);
+    return res.status(500).json({ error: "Failed to register interest: " + err.message });
+  }
+};
+
+/**
+ * GET /api/requests/confirm-interest/:id
+ * Query: { uid, response }
+ * Handle donor's confirmation from email.
+ */
+export const confirmInterest = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { uid, response } = req.query;
+
+    if (response !== 'yes') {
+      return res.send("<h1>Donation Pledge Cancelled</h1><p>Thank you for letting us know. We have not assigned you to this request.</p>");
+    }
+
+    // Resolve user
+    let user = null;
+    if (uid) {
+      const isObjectId = /^[0-9a-fA-F]{24}$/.test(uid);
+      if (isObjectId) {
+        user = await User.findOne({ $or: [{ uid }, { _id: uid }] });
+      } else {
+        user = await User.findOne({ uid });
+      }
+    }
+
+    if (!user) return res.status(404).send("User not found");
+
+    const request = await Request.findById(id);
+    if (!request) return res.status(404).send("Request not found");
+
+    if (request.status === 'fulfilled' || request.status === 'cancelled') {
+      return res.send("<h1>Request Closed</h1><p>This request has already been fulfilled or cancelled.</p>");
+    }
+
+    // Check if already claimed
+    const existingResponse = await DonorResponse.findOne({ requestId: id, donorId: user._id });
+    if (existingResponse) {
+      return res.send(`<h1>Already Registered</h1><p>You are already registered as a ${existingResponse.role} donor.</p>`);
+    }
+
+    // --- ASSIGNMENT LOGIC (Moved from claimRequest) ---
+    let role = 'backup';
+    let message = "You are a Backup Donor. Standby!";
+
+    if (request.status === 'open' || !request.primaryDonor?.donorId) {
+      // Assign Primary
+      role = 'primary';
+      request.status = 'primary_assigned';
+      request.primaryDonor = {
+        donorId: user._id,
+        acceptedAt: new Date(),
+        confirmedAt: null,
+        arrived: false
+      };
+      message = "You are the Primary Donor! Please arrive within 2 hours.";
+    } else {
+      // Assign Backup
+      role = 'backup';
+      if (request.status === 'primary_assigned') request.status = 'backup_assigned';
+      request.backupDonors.push({
+        donorId: user._id,
+        acceptedAt: new Date(),
+        promoted: false,
+        reachedHospital: false,
+        gpsVerified: false
+      });
+    }
+
+    await request.save();
+
+    // Create DonorResponse
+    await DonorResponse.create({
+      requestId: id,
+      donorId: user._id,
+      role,
+      status: 'active',
+      hospital: request.hospital
+    });
+
+    // Notify User (Email)
+    const subject = role === 'primary' ? "URGENT: You are the Primary Donor" : "You are a Backup Donor";
+    const html = role === 'primary'
+      ? `<p>Hi ${user.name},</p><p>Thank you for confirming! You have been assigned as the <b>Primary Donor</b> for the request at <b>${request.hospital}</b>.</p><p>Please arrive within 2 hours.</p>`
+      : `<p>Hi ${user.name},</p><p>Thank you for confirming! You are a <b>Backup Donor</b> for the request at <b>${request.hospital}</b>.</p><p>Please standby.</p>`;
+
+    sendMail({ to: user.email, subject, html }).catch(console.error);
+
+    // Notify Requester
+    let requester = null;
+    if (request.requesterId) {
+      requester = await User.findById(request.requesterId);
+    }
+    if (requester?.email) {
+      sendMail({
+        to: requester.email,
+        subject: "Donor Found!",
+        html: `<p>Hi ${requester.name},</p><p>A donor (${user.name}) has confirmed their pledge!</p><p>They are currently: <b>${role === 'primary' ? 'Primary Donor' : 'Backup Donor'}</b>.</p>`
+      }).catch(console.error);
+    }
+
+    return res.send(`<h1>Thank You!</h1><p>${message}</p><p>You can verify this in the app under 'My Donations'.</p>`);
+
+  } catch (err) {
+    console.error("confirmInterest:", err);
+    return res.status(500).send("Internal Server Error: " + err.message);
+  }
+};
+/**
  * POST /api/requests/verify-arrival/:id
  * Body: { uid, lat, lng }
  */
@@ -591,6 +774,16 @@ export const cancelDonation = async (req, res) => {
             to: newPrimaryUser.email,
             subject: "URGENT: You are now the Primary Donor!",
             html: emailHtml
+          });
+        }
+
+        // Notify Requester about the change
+        const requester = await User.findById(request.requesterId);
+        if (requester?.email) {
+          await sendMail({
+            to: requester.email,
+            subject: "Donor Update: New Primary Donor Assigned",
+            html: `<p>Hi ${requester.name},</p><p>The previous primary donor cancelled. We have automatically promoted <b>${newPrimaryUser.name}</b> to be your new Primary Donor.</p>`
           });
         }
 
