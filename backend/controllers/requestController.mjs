@@ -777,13 +777,26 @@ export const cancelDonation = async (req, res) => {
           });
         }
 
-        // Notify Requester about the change
+        // Notify Requester about the change WITH DONOR DETAILS
         const requester = await User.findById(request.requesterId);
         if (requester?.email) {
           await sendMail({
             to: requester.email,
             subject: "Donor Update: New Primary Donor Assigned",
-            html: `<p>Hi ${requester.name},</p><p>The previous primary donor cancelled. We have automatically promoted <b>${newPrimaryUser.name}</b> to be your new Primary Donor.</p>`
+            html: `
+              <p>Hi ${requester.name},</p>
+              <p>The previous primary donor cancelled. We have automatically promoted a new donor to be your <b>Primary Donor</b>.</p>
+              <h3>New Primary Donor Details:</h3>
+              <ul>
+                <li><b>Name:</b> ${newPrimaryUser?.name || 'Not provided'}</li>
+                <li><b>Phone:</b> ${newPrimaryUser?.phone || 'Not provided'}</li>
+                <li><b>Blood Group:</b> ${newPrimaryUser?.bloodGroup || 'Not specified'}</li>
+                <li><b>Email:</b> ${newPrimaryUser?.email || 'Not provided'}</li>
+              </ul>
+              <p>Please contact them directly to confirm their arrival at <b>${request.hospital}</b>.</p>
+              <p>Thank you for your patience!</p>
+              <p>— Real-Hero Team</p>
+            `
           });
         }
 
@@ -1121,4 +1134,3 @@ export const verifyDonation = async (req, res) => {
     return res.status(500).json({ error: e.message });
   }
 };
-
