@@ -739,7 +739,7 @@ export default function Donate() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ uid: user.uid })
+        body: JSON.stringify({ uid: user?.uid })
       }).then(res => res.json())
         .then(data => {
           if (!data.ok) console.warn('Background interest registration failed', data.error);
