@@ -101,6 +101,7 @@ export const createRequest = async (req, res) => {
         console.log(`createRequest: Requester UID: ${uid}, Requester ID: ${requesterId}`);
 
         // Find users with locationGeo within 50km
+        // Find users with locationGeo within 50km
         const nearbyUsers = await User.find({
           locationGeo: {
             $near: {
@@ -113,34 +114,31 @@ export const createRequest = async (req, res) => {
             { uid: { $ne: uid } },
             { _id: { $ne: requesterId } }
           ]
-        }).select("_id name locationGeo");
+        }).select("_id name locationGeo email");
 
-        console.log(`createRequest: Found ${nearbyUsers.length} nearby users:`, nearbyUsers.map(u => u._id));
-        if (nearbyUsers.length === 0) {
-          console.log("createRequest: No nearby users found. Check database for users with valid locationGeo.");
-        }
+        console.log(`createRequest: Found ${nearbyUsers.length} nearby users (excluding requester)`);
 
         if (nearbyUsers.length > 0) {
+          // Create in-app notifications
           const notifications = nearbyUsers.map((u) => ({
             userId: u._id,
             title: "Urgent: Blood Donor Needed",
-            body: `Our user ${name} requires blood, so please open the app and check the details, and we requested you to help`,
+            body: `Our user ${name} requires blood, so please open the app and check the details.`,
             meta: { requestId: reqDoc._id, urgency: true },
             createdAt: new Date(),
           }));
 
           await Notification.insertMany(notifications);
-          console.log(`createRequest: Notified ${nearbyUsers.length} users within 50km.`);
+          console.log(`createRequest: Created ${notifications.length} in-app notifications.`);
 
-          // Send Emails to nearby users
-          const userIds = nearbyUsers.map(u => u._id);
-          const fullUsers = await User.find({ _id: { $in: userIds } }).select("email name");
-          console.log(`createRequest: Fetched ${fullUsers.length} full user records for emailing.`);
+          // Send Emails (Async)
+          (async () => {
+            let sentCount = 0;
+            for (const u of nearbyUsers) {
+              if (!u.email) continue;
 
-          for (const user of fullUsers) {
-            if (user.email) {
               const emailHtml = `
-                <p>Hi ${user.name || "Donor"},</p>
+                <p>Hi ${u.name || "Donor"},</p>
                 <p><b>Urgent: Blood Donor Needed</b></p>
                 <p>Our user <b>${name}</b> requires blood.</p>
                 <p><b>Details:</b></p>
@@ -154,21 +152,19 @@ export const createRequest = async (req, res) => {
                 <p>Thanks — Real-Hero</p>
               `;
 
-              try {
-                const result = await sendMail({
-                  to: user.email,
-                  subject: "Urgent: Blood Donor Needed Nearby",
-                  html: emailHtml,
-                });
-                console.log(`createRequest: Sent email to ${user.email}, result:`, result);
-              } catch (emailErr) {
-                console.error(`createRequest: Failed to send email to ${user.email}`, emailErr);
-              }
+              const emailRes = await sendMail({
+                to: u.email,
+                subject: `URGENT: Blood Request Nearby - ${bloodGroup}`,
+                html: emailHtml,
+              });
+
+              if (emailRes.ok) sentCount++;
+              else console.warn(`Failed to send email to ${u.email}:`, emailRes.error);
             }
-          }
+            console.log(`createRequest: Sent emails to ${sentCount}/${nearbyUsers.length} users.`);
+          })();
         }
-      }
-      catch (notifErr) {
+      } catch (notifErr) {
         console.error("createRequest: notification error", notifErr);
         // Don't fail the request if notifications fail
       }
